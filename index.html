@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Ocean Ascent</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      background: #0a1628;
+      color: #e8f4ff;
+      font-family: system-ui, sans-serif;
+      gap: 12px;
+      padding: 16px;
+    }
+    h1 { font-size: 1.25rem; font-weight: 600; }
+    #hud { font-size: 0.9rem; opacity: 0.9; min-height: 1.2em; }
+    canvas {
+      display: block;
+      max-width: 100%;
+      border-radius: 8px;
+      border: 2px solid #1e3a5f;
+      background: #001a33;
+      touch-action: none;
+    }
+    .hint { font-size: 0.8rem; opacity: 0.7; text-align: center; max-width: 360px; }
+    button {
+      margin-top: 4px;
+      padding: 8px 20px;
+      font-size: 1rem;
+      border: none;
+      border-radius: 6px;
+      background: #2a7de1;
+      color: #fff;
+      cursor: pointer;
+    }
+    button:hover { background: #3a8df1; }
+    #overlay {
+      position: absolute;
+      inset: 0;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      background: rgba(0, 20, 40, 0.75);
+      color: #fff;
+      font-size: 1.4rem;
+      font-weight: 600;
+      border-radius: 8px;
+      pointer-events: none;
+    }
+    #wrap { position: relative; }
+  </style>
+</head>
+<body>
+  <h1>Ocean Ascent</h1>
+  <div id="hud">Swim up to the surface. Arrow keys or WASD.</div>
+  <div id="wrap">
+    <canvas id="game" width="360" height="560"></canvas>
+    <div id="overlay"></div>
+  </div>
+  <p class="hint">Start at the deep sea. Avoid the rocks. Reach the light.</p>
+  <button id="restart" type="button">Play / Restart</button>
+  <script>
+    const canvas = document.getElementById('game');
+    const ctx = canvas.getContext('2d');
+    const hud = document.getElementById('hud');
+    const overlay = document.getElementById('overlay');
+    const restartBtn = document.getElementById('restart');
+
+    const W = canvas.width;
+    const H = canvas.height;
+    const WORLD_H = 2400;
+    const FISH_R = 14;
+
+    const keys = {};
+    let fish, cameraY, obstacles, state, won;
+
+    function zoneColor(worldY) {
+      const t = Math.max(0, Math.min(1, worldY / WORLD_H));
+      if (t > 0.55) return '#001428';
+      if (t > 0.25) return '#0a3d6b';
+      return '#4eb8e8';
+    }
+
+    function makeObstacles() {
+      const list = [];
+      const spots = [
+        [80, 2000], [240, 1850], [140, 1600],
+        [60, 1400], [280, 1250], [180, 1100],
+        [100, 900], [250, 750], [160, 550],
+        [70, 400], [220, 280]
+      ];
+      for (const [x, y] of spots) {
+        list.push({ x, y, w: 50 + (x % 30), h: 28 + (y % 20) });
+      }
+      return list;
+    }
+
+    function reset() {
+      fish = { x: W / 2, y: WORLD_H - 80, vx: 0, vy: 0 };
+      cameraY = fish.y - H * 0.65;
+      obstacles = makeObstacles();
+      state = 'play';
+      won = false;
+      overlay.style.display = 'none';
+      hud.textContent = 'Swim up to the surface. Arrow keys or WASD.';
+    }
+
+    function hit(a, b) {
+      return a.x + FISH_R > b.x && a.x - FISH_R < b.x + b.w &&
+             a.y + FISH_R > b.y && a.y - FISH_R < b.y + b.h;
+    }
+
+    function update(dt) {
+      if (state !== 'play') return;
+      const speed = 180;
+      fish.vx = 0;
+      fish.vy = 0;
+      if (keys['ArrowLeft'] || keys['a'] || keys['A']) fish.vx = -speed;
+      if (keys['ArrowRight'] || keys['d'] || keys['D']) fish.vx = speed;
+      if (keys['ArrowUp'] || keys['w'] || keys['W']) fish.vy = -speed;
+      if (keys['ArrowDown'] || keys['s'] || keys['S']) fish.vy = speed * 0.7;
+
+      fish.x += fish.vx * dt;
+      fish.y += fish.vy * dt;
+      fish.x = Math.max(FISH_R, Math.min(W - FISH_R, fish.x));
+      fish.y = Math.max(0, Math.min(WORLD_H - FISH_R, fish.y));
+
+      for (const o of obstacles) {
+        if (hit(fish, o)) {
+          fish.y = Math.min(WORLD_H - FISH_R, fish.y + 40);
+          fish.x += (fish.x < o.x + o.w / 2) ? -20 : 20;
+          fish.x = Math.max(FISH_R, Math.min(W - FISH_R, fish.x));
+        }
+      }
+
+      const target = fish.y - H * 0.55;
+      cameraY += (target - cameraY) * Math.min(1, 6 * dt);
+      cameraY = Math.max(0, Math.min(WORLD_H - H, cameraY));
+
+      if (fish.y < 40) {
+        state = 'win';
+        won = true;
+        overlay.textContent = 'You reached the surface!';
+        overlay.style.display = 'flex';
+        hud.textContent = 'Nice swim. Hit Play / Restart to go again.';
+      }
+    }
+
+    function draw() {
+      const midY = cameraY + H / 2;
+      ctx.fillStyle = zoneColor(midY);
+      ctx.fillRect(0, 0, W, H);
+
+      const grad = ctx.createLinearGradient(0, 0, 0, H);
+      grad.addColorStop(0, zoneColor(cameraY));
+      grad.addColorStop(1, zoneColor(cameraY + H));
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, W, H);
+
+      if (cameraY < 80) {
+        ctx.fillStyle = '#87ceeb';
+        ctx.fillRect(0, 0, W, Math.max(0, 60 - cameraY));
+      }
+
+      ctx.fillStyle = '#5a4a3a';
+      for (const o of obstacles) {
+        const sy = o.y - cameraY;
+        if (sy + o.h < 0 || sy > H) continue;
+        ctx.fillRect(o.x, sy, o.w, o.h);
+      }
+
+      const fy = fish.y - cameraY;
+      ctx.font = '28px serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('\uD83D\uDC1F', fish.x, fy);
+
+      const depthPct = Math.round((1 - fish.y / WORLD_H) * 100);
+      ctx.fillStyle = 'rgba(255,255,255,0.85)';
+      ctx.font = '12px system-ui';
+      ctx.textAlign = 'left';
+      ctx.fillText('Depth: ' + depthPct + '% to surface', 10, 18);
+    }
+
+    let last = performance.now();
+    function loop(now) {
+      const dt = Math.min(0.05, (now - last) / 1000);
+      last = now;
+      update(dt);
+      draw();
+      requestAnimationFrame(loop);
+    }
+
+    window.addEventListener('keydown', (e) => {
+      keys[e.key] = true;
+      if (['ArrowUp','ArrowDown','ArrowLeft','ArrowRight',' '].includes(e.key)) e.preventDefault();
+    });
+    window.addEventListener('keyup', (e) => { keys[e.key] = false; });
+
+    let touchId = null, lastTouch = null;
+    canvas.addEventListener('touchstart', (e) => {
+      const t = e.changedTouches[0];
+      touchId = t.identifier;
+      lastTouch = { x: t.clientX, y: t.clientY };
+      e.preventDefault();
+    }, { passive: false });
+    canvas.addEventListener('touchmove', (e) => {
+      for (const t of e.changedTouches) {
+        if (t.identifier !== touchId || !lastTouch) continue;
+        const dx = t.clientX - lastTouch.x;
+        const dy = t.clientY - lastTouch.y;
+        fish.x += dx * 0.8;
+        fish.y += dy * 0.8;
+        lastTouch = { x: t.clientX, y: t.clientY };
+      }
+      e.preventDefault();
+    }, { passive: false });
+    canvas.addEventListener('touchend', () => { touchId = null; lastTouch = null; });
+
+    restartBtn.addEventListener('click', reset);
+    reset();
+    requestAnimationFrame(loop);
+  </script>
+</body>
+</html>
